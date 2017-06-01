@@ -1,6 +1,5 @@
 import SetQueue from 'set-queue'
 
-const isCancelled = Symbol('SagaObservableCancellation')
 
 const build_config = config => ({
   promise: Promise,
@@ -11,6 +10,7 @@ const build_config = config => ({
   // any time a new promise is created - if factory is given the promise is 
   // sent to the factory with 'pull' or 'push' and the promise instance. 
   configFactory: undefined,
+  log: false,
   ...config
 })
 
@@ -19,9 +19,9 @@ const buildQueues = () => ({
   dispatch: new SetQueue(),
 })
 
-const handleGetNextPromise = function handlingNextPromise(i) {
+const handleGetNextPromise = function handlingNextPromise() {
   let promise
-  if ( this.isCancelled === isCancelled ) return
+  if ( this.isCancelled === true ) return
   if ( this.promises.current ) {
     promise = this.promises.current
   } else {
@@ -48,7 +48,6 @@ const handleGetNextPromise = function handlingNextPromise(i) {
 export default class SagaObservable {
 
   constructor(config) {
-    this.i = 0
     this.promises = {
       current: undefined
     }
@@ -57,7 +56,7 @@ export default class SagaObservable {
   }
 
   publish = (...args) => {
-    if ( this.isCancelled === isCancelled || ! this.queues ) { return }
+    if ( this.isCancelled === true || ! this.queues ) { return }
     if (this.queues.dispatch.size) {
       return this.queues.dispatch.next().resolve(args)
     } else {
@@ -68,7 +67,7 @@ export default class SagaObservable {
 
   // throw a rejection to the next promise rather than a resolution
   throw = reason => {
-    if ( this.isCancelled === isCancelled || ! this.queues ) { return }
+    if ( this.isCancelled === true || ! this.queues ) { return }
     if (this.queues.dispatch.size) {
       this.queues.dispatch.next().reject(reason)
     } else {
@@ -89,14 +88,14 @@ export default class SagaObservable {
 
   cancel = () => {
     if ( this.isCancelled ) { return }
-    this.isCancelled = isCancelled
+    this.isCancelled = true
     try {
       if ( typeof this.config.onCancel === 'function' ) {
         this.config.onCancel.call(this)
       }
       if ( this.queues.dispatch.size > 0 ) {
         for ( let waiter of this.queues.dispatch ) {
-          waiter.reject(isCancelled)
+          waiter.reject('cancel')
         }
       }
     } catch (e) {
@@ -105,7 +104,7 @@ export default class SagaObservable {
       delete this.queues
       delete this.promises.current
       this.next = () => { throw new Error(`[SagaObservable]: ${this.name} next called after Cancellation`) }
-      this.publish = (...args) => { console.warn('[SagaObservable]: Publish Received after Cancellation ', this.name, args) }
+      this.publish = (...args) => { this.config.log && console.warn('[SagaObservable]: Publish Received after Cancellation ', this.name, args) }
       return this.cancelled()
     }
   }
